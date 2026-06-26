@@ -481,4 +481,54 @@ describe('Prefix shorthand tests', () => {
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
     });
   });
+
+  describe('skills.sh pack URLs', () => {
+    it('bare host: skills.sh/p/<id>', () => {
+      const result = parseSource('skills.sh/p/abc123');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('abc123');
+      expect(result.url).toBe('https://skills.sh/p/abc123');
+    });
+
+    it('https://skills.sh/p/<id>', () => {
+      const result = parseSource('https://skills.sh/p/abc123');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('abc123');
+      expect(result.url).toBe('https://skills.sh/p/abc123');
+    });
+
+    it('http://skills.sh/p/<id>', () => {
+      const result = parseSource('http://skills.sh/p/abc123');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('abc123');
+    });
+
+    it('www.skills.sh/p/<id>', () => {
+      const result = parseSource('https://www.skills.sh/p/abc123');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('abc123');
+    });
+
+    it('trailing slash', () => {
+      const result = parseSource('skills.sh/p/abc123/');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('abc123');
+    });
+
+    it('id with hyphens and underscores', () => {
+      const result = parseSource('skills.sh/p/aB3-_xYz09');
+      expect(result.type).toBe('pack');
+      expect(result.packId).toBe('aB3-_xYz09');
+    });
+
+    it('does not treat other skills.sh paths as packs', () => {
+      const result = parseSource('skills.sh/owner/repo');
+      expect(result.type).not.toBe('pack');
+    });
+
+    it('does not treat a non-skills.sh host as a pack', () => {
+      const result = parseSource('https://example.com/p/abc123');
+      expect(result.type).not.toBe('pack');
+    });
+  });
 });

@@ -13,6 +13,7 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { parsePackId, revokePack } from './pack.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -115,6 +116,7 @@ ${BOLD}Manage Skills:${RESET}
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
+  revoke <url> <token> Revoke a shared pack (skills.sh/p/<id>)
 
 ${BOLD}Find Options:${RESET}
   --owner <owner>        Search only repositories from a GitHub owner
@@ -293,6 +295,42 @@ Describe when this skill should be used.
   console.log();
 }
 
+async function runRevoke(args: string[]): Promise<void> {
+  const [url, token] = args;
+
+  if (!url || !token) {
+    console.log();
+    console.log(`${BOLD}Usage:${RESET} skills revoke <url> <token>`);
+    console.log();
+    console.log(`${DIM}Example:${RESET}`);
+    console.log(`  skills revoke https://skills.sh/p/abc123 rvk_0123456789abcdef`);
+    console.log();
+    process.exit(1);
+  }
+
+  const packId = parsePackId(url);
+  if (!packId) {
+    console.log(`${TEXT}Not a valid pack URL: ${DIM}${url}${RESET}`);
+    console.log(`${DIM}Expected a skills.sh/p/<id> URL${RESET}`);
+    process.exit(1);
+  }
+
+  try {
+    const { success } = await revokePack(packId, token);
+    if (success) {
+      console.log(`${TEXT}Pack revoked: ${DIM}${packId}${RESET}`);
+    } else {
+      console.log(`${TEXT}Pack not found or already revoked: ${DIM}${packId}${RESET}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    console.log(
+      `${TEXT}Failed to revoke pack: ${DIM}${error instanceof Error ? error.message : 'Unknown error'}${RESET}`
+    );
+    process.exit(1);
+  }
+}
+
 // ============================================
 // Main
 // ============================================
@@ -365,6 +403,9 @@ async function main(): Promise<void> {
       await runSync(restArgs, syncOptions);
       break;
     }
+    case 'revoke':
+      await runRevoke(restArgs);
+      break;
     case 'list':
     case 'ls':
       await runList(restArgs);

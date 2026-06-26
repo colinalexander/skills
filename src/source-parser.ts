@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
+import { parsePackId } from './pack.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -8,7 +9,7 @@ import type { ParsedSource } from './types.ts';
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
 export function getOwnerRepo(parsed: ParsedSource): string | null {
-  if (parsed.type === 'local') {
+  if (parsed.type === 'local' || parsed.type === 'pack') {
     return null;
   }
 
@@ -246,6 +247,16 @@ export function parseSource(input: string): ParsedSource {
       type: 'local',
       url: resolvedPath, // Store resolved path in url for consistency
       localPath: resolvedPath,
+    };
+  }
+
+  // Skills.sh pack: skills.sh/p/<id> (and https:// / www. variants)
+  const packId = parsePackId(input);
+  if (packId) {
+    return {
+      type: 'pack',
+      url: `https://skills.sh/p/${packId}`,
+      packId,
     };
   }
 

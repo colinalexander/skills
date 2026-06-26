@@ -78,6 +78,7 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
+import { fetchPackSnapshot, packSnapshotToBlobSkills } from './pack.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -1118,7 +1119,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
 
-    if (parsed.type === 'local') {
+    if (parsed.type === 'pack') {
+      spinner.start('Fetching pack...');
+      const snapshot = await fetchPackSnapshot(parsed.packId!);
+      if (!snapshot) {
+        spinner.stop(pc.red('Pack not found'));
+        p.outro(pc.red('Pack not found or expired/revoked'));
+        process.exit(1);
+      }
+      const packSkills = packSnapshotToBlobSkills(snapshot);
+      blobResult = { skills: packSkills, tree: { sha: '', branch: '', tree: [] } };
+      skills = packSkills;
+      spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    } else if (parsed.type === 'local') {
       // Use local path directly, no cloning needed
       spinner.start('Validating local path...');
       if (!existsSync(parsed.localPath!)) {
