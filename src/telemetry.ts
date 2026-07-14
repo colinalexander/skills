@@ -17,6 +17,18 @@ interface InstallTelemetryData {
   sourceType?: string;
 }
 
+interface PackInstallTelemetryData {
+  /** Canonical skills.sh pack URL, including the pack ID. */
+  packUrl: string;
+  packId: string;
+  /** Short-lived, server-signed receipt from the pack manifest. */
+  receipt: string;
+  agents: string[];
+  global: boolean;
+  /** Count unique skills that installed to at least one target agent. */
+  installedSkillCount: number;
+}
+
 interface RemoveTelemetryData {
   event: 'remove';
   source?: string;
@@ -171,6 +183,42 @@ export function track(data: TelemetryData): void {
     pendingTelemetry.push(p);
   } catch {
     // Silently fail - telemetry should never break the CLI
+  }
+}
+
+/**
+ * Report a completed skills.sh pack installation directly to the pack owner.
+ *
+ * Packs must not use generic skill telemetry: that would attribute every
+ * member skill to `skills.sh`, lose the pack identity, and could reveal the
+ * contents of a private pack. This request is best effort just like track().
+ */
+export function trackPackInstall(data: PackInstallTelemetryData): void {
+  if (!isEnabled() || data.installedSkillCount < 1) return;
+
+  try {
+    const packUrl = new URL(data.packUrl);
+    const callbackUrl = new URL(
+      `/api/p/${encodeURIComponent(data.packId)}/install`,
+      packUrl.origin
+    );
+
+    const p = fetch(callbackUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receipt: data.receipt,
+        agents: [...new Set(data.agents)].sort(),
+        global: data.global,
+        installed_skill_count: data.installedSkillCount,
+        cli_version: cliVersion ?? 'unknown',
+      }),
+    })
+      .catch(() => {})
+      .then(() => {});
+    pendingTelemetry.push(p);
+  } catch {
+    // Invalid telemetry URLs must never affect installation.
   }
 }
 

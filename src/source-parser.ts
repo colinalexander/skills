@@ -48,11 +48,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
 
   try {
     const url = new URL(parsed.url);
-    if (
-      parsed.type === 'well-known' &&
-      (url.hostname === 'skills.sh' || url.hostname === 'www.skills.sh') &&
-      url.pathname.startsWith('/p/')
-    ) {
+    if (parsed.type === 'well-known' && getSkillsPackId(url.toString())) {
       return null;
     }
 
@@ -153,6 +149,26 @@ const SOURCE_ALIASES: Record<string, string> = {
 };
 
 const SKILLS_PACK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/;
+
+/**
+ * Return a pack identifier only for a canonical skills.sh pack URL.
+ *
+ * Keep this separate from generic well-known URLs: callers use it to skip
+ * per-skill telemetry and emit one completed-pack event instead.
+ */
+export function getSkillsPackId(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== 'skills.sh' && parsed.hostname !== 'www.skills.sh') {
+      return null;
+    }
+
+    const match = parsed.pathname.match(/^\/p\/([A-Za-z0-9][A-Za-z0-9_-]{0,119})\/?$/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface FragmentRefResult {
   inputWithoutFragment: string;

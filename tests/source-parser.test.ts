@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { platform } from 'os';
-import { parseSource, getOwnerRepo } from '../src/source-parser.ts';
+import { parseSource, getOwnerRepo, getSkillsPackId } from '../src/source-parser.ts';
 
 const isWindows = platform() === 'win32';
 
@@ -240,6 +240,17 @@ describe('parseSource', () => {
       expect(() => parseSource('skills.sh/p/frontend-pack/extra')).toThrow(
         'Invalid skills pack source'
       );
+    });
+
+    it('extracts only canonical skills.sh pack IDs', () => {
+      expect(getSkillsPackId('https://skills.sh/p/frontend-pack-A1b2C3d4')).toBe(
+        'frontend-pack-A1b2C3d4'
+      );
+      expect(getSkillsPackId('https://www.skills.sh/p/frontend_pack-A1b2C3d4/')).toBe(
+        'frontend_pack-A1b2C3d4'
+      );
+      expect(getSkillsPackId('https://skills.sh/p/a/b')).toBeNull();
+      expect(getSkillsPackId('https://example.com/p/a')).toBeNull();
     });
   });
 

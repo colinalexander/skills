@@ -192,6 +192,46 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });
 
+    it('returns the optional skills.sh pack install receipt', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (
+          href === 'https://skills.sh/p/frontend-pack-A1b2C3d4/.well-known/agent-skills/index.json'
+        ) {
+          return response({
+            skills: [
+              {
+                name: 'legacy-skill',
+                description: 'Legacy skill.',
+                files: ['SKILL.md'],
+              },
+            ],
+            pack_install: {
+              pack_id: 'frontend-pack-A1b2C3d4',
+              receipt: 'signed-receipt-123456',
+            },
+          });
+        }
+        if (
+          href ===
+          'https://skills.sh/p/frontend-pack-A1b2C3d4/.well-known/agent-skills/legacy-skill/SKILL.md'
+        ) {
+          return response('---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy');
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const discovery = await provider.fetchAllSkillsWithContext(
+        'https://skills.sh/p/frontend-pack-A1b2C3d4'
+      );
+
+      expect(discovery.skills).toHaveLength(1);
+      expect(discovery.packInstall).toEqual({
+        packId: 'frontend-pack-A1b2C3d4',
+        receipt: 'signed-receipt-123456',
+      });
+    });
+
     it('keeps supporting path-relative legacy indexes like code.claude.com/docs', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);

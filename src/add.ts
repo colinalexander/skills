@@ -4,7 +4,13 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import {
+  parseSource,
+  getOwnerRepo,
+  getSkillsPackId,
+  parseOwnerRepo,
+  isRepoPrivate,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
@@ -53,6 +59,7 @@ import {
 } from './agents.ts';
 import {
   track,
+  trackPackInstall,
   setVersion,
   fetchAuditData,
   type AuditResponse,
@@ -554,8 +561,13 @@ async function handleWellKnownSkills(
 ): Promise<void> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  // Fetch all skills from the well-known endpoint. skills.sh pack manifests
+  // include a short-lived receipt authorizing the completed-install callback.
+  const discovery = await wellKnownProvider.fetchAllSkillsWithContext(url);
+  const skills = discovery.skills;
+  const packId = getSkillsPackId(url);
+  const packReceipt =
+    packId && discovery.packInstall?.packId === packId ? discovery.packInstall.receipt : null;
 
   if (skills.length === 0) {
     spinner.stop(pc.red('No skills found'));
@@ -836,9 +848,13 @@ async function handleWellKnownSkills(
     }
   }
 
-  // Kick off privacy check early so it runs in parallel with installation
+  // Kick off privacy check early so it runs in parallel with installation.
+  // Pack installs have their own server-side analytics endpoint and must not
+  // be reported as generic well-known installs.
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
-  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
+  const wellKnownPrivacyPromise = packId
+    ? null
+    : isSourcePrivate(sourceIdentifier).catch(() => null);
 
   spinner.start('Installing skills...');
 
@@ -873,24 +889,38 @@ async function handleWellKnownSkills(
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
-  // Build skillFiles map: { skillName: sourceUrl }
-  const skillFiles: Record<string, string> = {};
-  for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
-  }
+  if (packId && packReceipt) {
+    const installedSkillCount = new Set(successful.map((result) => result.skill)).size;
+    if (installedSkillCount > 0) {
+      trackPackInstall({
+        packUrl: url,
+        packId,
+        receipt: packReceipt,
+        agents: targetAgents,
+        global: installGlobally,
+        installedSkillCount,
+      });
+    }
+  } else {
+    // Build skillFiles map: { skillName: sourceUrl }
+    const skillFiles: Record<string, string> = {};
+    for (const skill of selectedSkills) {
+      skillFiles[skill.installName] = skill.sourceUrl;
+    }
 
-  // Privacy promise was started before installation — should be resolved by now
-  const isPrivate = await wellKnownPrivacyPromise;
-  if (isPrivate !== true) {
-    track({
-      event: 'install',
-      source: sourceIdentifier,
-      skills: selectedSkills.map((s) => s.installName).join(','),
-      agents: targetAgents.join(','),
-      ...(installGlobally && { global: '1' }),
-      skillFiles: JSON.stringify(skillFiles),
-      sourceType: 'well-known',
-    });
+    // Privacy promise was started before installation — should be resolved by now
+    const isPrivate = await wellKnownPrivacyPromise;
+    if (isPrivate !== true) {
+      track({
+        event: 'install',
+        source: sourceIdentifier,
+        skills: selectedSkills.map((s) => s.installName).join(','),
+        agents: targetAgents.join(','),
+        ...(installGlobally && { global: '1' }),
+        skillFiles: JSON.stringify(skillFiles),
+        sourceType: 'well-known',
+      });
+    }
   }
 
   // Add to skill lock file for update tracking (only for global installs)

@@ -36,6 +36,12 @@ export interface WellKnownIndexV2 {
   skills: WellKnownSkillEntryV2[];
 }
 
+/** Optional skills.sh extension for an authenticated pack install callback. */
+export interface WellKnownPackInstall {
+  packId: string;
+  receipt: string;
+}
+
 /**
  * Represents a v0.2.0 skill artifact entry in index.json.
  */
@@ -70,6 +76,22 @@ type NormalizedWellKnownEntry =
       digest: string;
       indexEntry: WellKnownSkillEntryV2;
     };
+
+interface WellKnownIndexCandidate {
+  index: WellKnownIndex;
+  entries: NormalizedWellKnownEntry[];
+  /** Present only on skills.sh pack manifests. */
+  packInstall: WellKnownPackInstall | null;
+  resolvedBaseUrl: string;
+  resolvedWellKnownPath: string;
+  indexUrl: string;
+}
+
+export interface WellKnownSkillsDiscovery {
+  skills: WellKnownSkill[];
+  /** Present only when the manifest authorizes a pack install callback. */
+  packInstall: WellKnownPackInstall | null;
+}
 
 /**
  * Represents a skill with all installable files fetched from a well-known endpoint.
@@ -139,6 +161,7 @@ export class WellKnownProvider implements HostProvider {
   async fetchIndex(baseUrl: string): Promise<{
     index: WellKnownIndex;
     entries: NormalizedWellKnownEntry[];
+    packInstall: WellKnownPackInstall | null;
     resolvedBaseUrl: string;
     resolvedWellKnownPath: string;
     indexUrl: string;
@@ -147,15 +170,7 @@ export class WellKnownProvider implements HostProvider {
     return candidates[0] ?? null;
   }
 
-  private async fetchIndexCandidates(baseUrl: string): Promise<
-    Array<{
-      index: WellKnownIndex;
-      entries: NormalizedWellKnownEntry[];
-      resolvedBaseUrl: string;
-      resolvedWellKnownPath: string;
-      indexUrl: string;
-    }>
-  > {
+  private async fetchIndexCandidates(baseUrl: string): Promise<WellKnownIndexCandidate[]> {
     try {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, '');
@@ -182,13 +197,7 @@ export class WellKnownProvider implements HostProvider {
         }
       }
 
-      const candidates: Array<{
-        index: WellKnownIndex;
-        entries: NormalizedWellKnownEntry[];
-        resolvedBaseUrl: string;
-        resolvedWellKnownPath: string;
-        indexUrl: string;
-      }> = [];
+      const candidates: WellKnownIndexCandidate[] = [];
 
       for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) {
         try {
@@ -202,6 +211,7 @@ export class WellKnownProvider implements HostProvider {
           candidates.push({
             index: normalized.index,
             entries: normalized.entries,
+            packInstall: normalized.packInstall,
             resolvedBaseUrl: resolvedBase,
             resolvedWellKnownPath: wellKnownPath,
             indexUrl,
@@ -221,7 +231,11 @@ export class WellKnownProvider implements HostProvider {
     rawIndex: unknown,
     indexUrl: string,
     resolvedWellKnownPath: string
-  ): { index: WellKnownIndex; entries: NormalizedWellKnownEntry[] } | null {
+  ): {
+    index: WellKnownIndex;
+    entries: NormalizedWellKnownEntry[];
+    packInstall: WellKnownPackInstall | null;
+  } | null {
     if (!rawIndex || typeof rawIndex !== 'object') return null;
 
     const record = rawIndex as Record<string, unknown>;
@@ -250,7 +264,11 @@ export class WellKnownProvider implements HostProvider {
       }
 
       if (entries.length === 0) return null;
-      return { index: { $schema: DISCOVERY_SCHEMA_V2, skills: v2Entries }, entries };
+      return {
+        index: { $schema: DISCOVERY_SCHEMA_V2, skills: v2Entries },
+        entries,
+        packInstall: this.parsePackInstall(record.pack_install),
+      };
     }
 
     // Per the v0.2.0 draft, an absent $schema means legacy/v0.1.0.
@@ -275,7 +293,28 @@ export class WellKnownProvider implements HostProvider {
       });
     }
 
-    return { index: { skills: v1Entries }, entries };
+    return {
+      index: { skills: v1Entries },
+      entries,
+      packInstall: this.parsePackInstall(record.pack_install),
+    };
+  }
+
+  private parsePackInstall(value: unknown): WellKnownPackInstall | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record.pack_id !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/.test(record.pack_id) ||
+      typeof record.receipt !== 'string' ||
+      record.receipt.length < 16 ||
+      record.receipt.length > 2_048
+    ) {
+      return null;
+    }
+
+    return { packId: record.pack_id, receipt: record.receipt };
   }
 
   private getLegacySkillBaseUrl(indexUrl: string, wellKnownPath: string): string {
@@ -542,6 +581,11 @@ export class WellKnownProvider implements HostProvider {
 
   /** Fetch all skills from a well-known endpoint. */
   async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+    return (await this.fetchAllSkillsWithContext(url)).skills;
+  }
+
+  /** Fetch all skills together with any pack-specific install receipt. */
+  async fetchAllSkillsWithContext(url: string): Promise<WellKnownSkillsDiscovery> {
     try {
       const candidates = await this.fetchIndexCandidates(url);
 
@@ -551,12 +595,14 @@ export class WellKnownProvider implements HostProvider {
         const skills = results.filter(
           (s: WellKnownSkill | null): s is WellKnownSkill => s !== null
         );
-        if (skills.length > 0) return skills;
+        if (skills.length > 0) {
+          return { skills, packInstall: result.packInstall };
+        }
       }
 
-      return [];
+      return { skills: [], packInstall: null };
     } catch {
-      return [];
+      return { skills: [], packInstall: null };
     }
   }
 
