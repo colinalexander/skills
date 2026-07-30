@@ -1291,6 +1291,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = skills;
       p.log.info(`Installing all ${skills.length} skills`);
     } else {
+      const isPack = parsed.type === 'pack';
       // Sort skills by plugin name first, then by skill name
       const sortedSkills = [...skills].sort((a, b) => {
         if (a.pluginName && !b.pluginName) return -1;
@@ -1328,6 +1329,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         selected = await p.groupMultiselect({
           message: `Select skills to install ${pc.dim('(space to toggle)')}`,
           options: grouped,
+          initialValues: isPack ? sortedSkills : undefined,
           required: true,
         });
       } else {
@@ -1338,8 +1340,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }));
 
         selected = await multiselect({
-          message: 'Select skills to install',
+          message: isPack ? 'Select skills to install (all selected)' : 'Select skills to install',
           options: skillChoices,
+          initialValues: isPack ? sortedSkills : undefined,
           required: true,
         });
       }
