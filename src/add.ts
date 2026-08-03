@@ -1832,6 +1832,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             metadata: options.metadata,
           });
         }
+      } else {
+        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
+        track({
+          event: 'install',
+          source: normalizedSource,
+          skills: selectedSkills.map((s) => s.name).join(','),
+          agents: targetAgents.join(','),
+          ...(installGlobally && { global: '1' }),
+          skillFiles: JSON.stringify(skillFiles),
+          metadata: options.metadata,
+        });
       }
     }
 

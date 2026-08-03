@@ -153,7 +153,7 @@ describe('private repository installs', () => {
     expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/'))).toBe(false);
   });
 
-  it('installs an authenticated repository from another Git host through normal Git auth', async () => {
+  it('installs from another Git host and preserves opted-in non-GitHub telemetry', async () => {
     delete process.env.DISABLE_TELEMETRY;
     const source = 'git@gitlab.com:company/platform/private-skills.git';
 
@@ -170,6 +170,11 @@ describe('private repository installs', () => {
     ).resolves.toContain('private-skill');
 
     const requestedUrls = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
-    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/'))).toBe(false);
+    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/t?'))).toBe(
+      true
+    );
+    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/audit?'))).toBe(
+      false
+    );
   });
 });

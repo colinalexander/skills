@@ -538,7 +538,7 @@ INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
 
 This CLI collects anonymous usage data to help improve the tool. No personal information is collected.
 
-Repository and skill identifiers are sent only for repositories that GitHub positively confirms are public. Private repositories, non-GitHub repositories, and repositories whose visibility cannot be determined are excluded from telemetry and security-audit requests. Set `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` to disable both entirely.
+GitHub repository and skill identifiers are sent only for repositories that GitHub positively confirms are public. Other remote source types may include source and skill identifiers in install telemetry because their visibility cannot be checked through GitHub. Security-audit requests remain limited to confirmed-public GitHub repositories. Set `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` to disable both entirely.
 
 ## Related Links
 
