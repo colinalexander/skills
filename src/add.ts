@@ -1368,13 +1368,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = selected as Skill[];
     }
 
-    // Kick off security audit fetch early (non-blocking) so it runs
-    // in parallel with agent selection, scope, and mode prompts.
+    // Kick off the security audit only after GitHub has positively confirmed
+    // that this is a public repository. Private and unknown repositories must
+    // not send their names or skill names to the audit service.
     const ownerRepoForAudit = getOwnerRepo(parsed);
     const auditPromise = ownerRepoForAudit
-      ? fetchAuditData(
-          ownerRepoForAudit,
-          selectedSkills.map((s) => getSkillDisplayName(s))
+      ? repoPrivacyPromise.then((isPrivate) =>
+          isPrivate === false
+            ? fetchAuditData(
+                ownerRepoForAudit,
+                selectedSkills.map((s) => getSkillDisplayName(s))
+              )
+            : null
         )
       : Promise.resolve(null);
 
@@ -1827,17 +1832,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             metadata: options.metadata,
           });
         }
-      } else {
-        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
-        track({
-          event: 'install',
-          source: normalizedSource,
-          skills: selectedSkills.map((s) => s.name).join(','),
-          agents: targetAgents.join(','),
-          ...(installGlobally && { global: '1' }),
-          skillFiles: JSON.stringify(skillFiles),
-          metadata: options.metadata,
-        });
       }
     }
 
