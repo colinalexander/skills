@@ -14,6 +14,22 @@ Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#su
 npx skills add vercel-labs/agent-skills
 ```
 
+## Private Skills
+
+Some skills live in private registries. Install them with the same command:
+
+```bash
+npx skills add owner/repo
+```
+
+If the source is private, the CLI asks you to sign in:
+
+```bash
+npx skills login
+```
+
+Login opens your browser, signs you in, and stores an access token at `~/.config/skills/auth.json`. Set the `SKILLS_TOKEN` environment variable to override it (useful in CI). Use `npx skills whoami` to see the signed-in account and `npx skills logout` to sign out.
+
 ## Use a Skill Without Installing
 
 Generate a prompt for one skill, or start a supported coding agent interactively:
