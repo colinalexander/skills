@@ -129,6 +129,8 @@ export async function tryPrivateInstall(
     return { skills: result.skills, tree: emptyRepoTree(parsed.ref) };
   }
 
+  spinner.stop(pc.dim('No private match'));
+
   return null;
 }
 
