@@ -58,6 +58,7 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
+import { NOTION_TEST_SOURCE, runNotionTestSelector } from './notion-test.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -1101,6 +1102,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   let tempDir: string | null = null;
 
   try {
+    if (source === NOTION_TEST_SOURCE) {
+      await runNotionTestSelector(options);
+      return;
+    }
+
     const spinner = p.spinner();
 
     spinner.start('Parsing source…');

@@ -44,6 +44,16 @@ describe('add command', () => {
     expect(result.exitCode).toBe(1);
   });
 
+  it('special-cases notion-test and requires a token from the environment', () => {
+    const result = runCli(['add', 'notion-test', '--list'], testDir, {
+      NOTION_API_TOKEN: '',
+    });
+
+    expect(result.stdout).toContain('notion-test requires NOTION_API_TOKEN');
+    expect(result.stdout).not.toContain('Cloning repository');
+    expect(result.exitCode).toBe(1);
+  });
+
   it('should list skills from local path with --list flag', () => {
     // Create a test skill
     const skillDir = join(testDir, 'test-skill');

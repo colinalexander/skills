@@ -29,6 +29,17 @@ export interface DownloadedSource {
   kind: 'skill-md' | 'archive';
 }
 
+export interface DownloadSourceOptions {
+  downloadMaxBytes?: number;
+  extractMaxBytes?: number;
+  extractMaxFiles?: number;
+  fetchTimeoutMs?: number;
+}
+
+function positiveIntegerOr(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 function getPositiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -36,14 +47,20 @@ function getPositiveIntegerEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getDownloadLimits(): DownloadLimits {
+function getDownloadLimits(options: DownloadSourceOptions): DownloadLimits {
   return {
     downloadMaxBytes: getPositiveIntegerEnv(
       'SKILLS_DOWNLOAD_MAX_BYTES',
-      DEFAULT_DOWNLOAD_MAX_BYTES
+      positiveIntegerOr(options.downloadMaxBytes, DEFAULT_DOWNLOAD_MAX_BYTES)
     ),
-    extractMaxBytes: getPositiveIntegerEnv('SKILLS_EXTRACT_MAX_BYTES', DEFAULT_EXTRACT_MAX_BYTES),
-    extractMaxFiles: getPositiveIntegerEnv('SKILLS_EXTRACT_MAX_FILES', DEFAULT_EXTRACT_MAX_FILES),
+    extractMaxBytes: getPositiveIntegerEnv(
+      'SKILLS_EXTRACT_MAX_BYTES',
+      positiveIntegerOr(options.extractMaxBytes, DEFAULT_EXTRACT_MAX_BYTES)
+    ),
+    extractMaxFiles: getPositiveIntegerEnv(
+      'SKILLS_EXTRACT_MAX_FILES',
+      positiveIntegerOr(options.extractMaxFiles, DEFAULT_EXTRACT_MAX_FILES)
+    ),
   };
 }
 
@@ -80,10 +97,11 @@ function incrementEntry(state: ExtractState, size: number, limits: DownloadLimit
 async function downloadToFile(
   url: string,
   targetFile: string,
-  limits: DownloadLimits
+  limits: DownloadLimits,
+  fetchTimeoutMs: number
 ): Promise<void> {
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(fetchTimeoutMs),
     redirect: 'follow',
   });
 
@@ -256,14 +274,18 @@ async function getSingleTopLevelDirectory(dir: string): Promise<string | null> {
   return join(dir, visibleEntries[0]!.name);
 }
 
-export async function downloadSource(url: string): Promise<DownloadedSource> {
-  const limits = getDownloadLimits();
+export async function downloadSource(
+  url: string,
+  options: DownloadSourceOptions = {}
+): Promise<DownloadedSource> {
+  const limits = getDownloadLimits(options);
+  const fetchTimeoutMs = positiveIntegerOr(options.fetchTimeoutMs, FETCH_TIMEOUT_MS);
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-download-'));
   const downloadedFile = join(tempDir, 'source.download');
   const extractDir = join(tempDir, 'extract');
 
   try {
-    await downloadToFile(url, downloadedFile, limits);
+    await downloadToFile(url, downloadedFile, limits, fetchTimeoutMs);
 
     const downloadedStats = await stat(downloadedFile);
     if (downloadedStats.size === 0) {
