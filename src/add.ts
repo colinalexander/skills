@@ -54,14 +54,9 @@ import {
   BLOB_ALLOWED_REPOS,
   getSkillFolderHashFromTree,
   fetchRepoTree,
-  resolvePrivateInstall,
-  emptyRepoTree,
   type BlobSkill,
   type BlobInstallResult,
-  type PrivateResolveResult,
 } from './blob.ts';
-import { getToken } from './auth-store.ts';
-import { runLogin } from './login.ts';
 import packageJson from '../package.json' with { type: 'json' };
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
@@ -79,59 +74,6 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
     return false;
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
-}
-
-export async function tryPrivateInstall(
-  ownerRepo: string,
-  parsed: { ref?: string; skillFilter?: string },
-  options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
-): Promise<BlobInstallResult | null> {
-  const token = getToken()?.token ?? null;
-
-  const attempt = (t: string | null): Promise<PrivateResolveResult> =>
-    resolvePrivateInstall(ownerRepo, { ref: parsed.ref, skill: parsed.skillFilter, token: t });
-
-  spinner.start('Checking private access…');
-  let result = await attempt(token);
-
-  if (result.status === 'unauthorized') {
-    const interactive = process.stdin.isTTY === true && !options.yes;
-    if (!interactive) {
-      spinner.stop(pc.red('Authentication required'));
-      p.outro(pc.red(`${ownerRepo} is private. Run \`skills login\` and try again.`));
-      process.exit(1);
-    }
-    spinner.stop(pc.yellow(`${ownerRepo} is private — signing you in…`));
-    await runLogin();
-    const retryToken = getToken()?.token ?? null;
-    if (!retryToken) {
-      p.outro(pc.red('Login did not complete. Try `skills login` again.'));
-      process.exit(1);
-    }
-    spinner.start('Checking private access…');
-    result = await attempt(retryToken);
-  }
-
-  if (result.status === 'unauthorized') {
-    spinner.stop(pc.red('Authentication failed'));
-    p.outro(pc.red(`Still can't authenticate for ${ownerRepo}. Try \`skills login\` again.`));
-    process.exit(1);
-  }
-
-  if (result.status === 'forbidden') {
-    spinner.stop(pc.red('Access denied'));
-    p.outro(pc.red(`Your account can't access ${ownerRepo}. Ask the owner for access.`));
-    process.exit(1);
-  }
-
-  if (result.status === 'ok' && result.skills && result.skills.length > 0) {
-    return { skills: result.skills, tree: emptyRepoTree(parsed.ref) };
-  }
-
-  spinner.stop(pc.dim('No private match'));
-
-  return null;
 }
 
 export function getLockSource(parsedUrl: string, normalizedSource: string | null): string | null {
@@ -1254,11 +1196,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (!blobResult) {
           spinner.stop(pc.dim('Falling back to clone…'));
         }
-      }
-
-      const eligibleForPrivate = getToken() !== null;
-      if (!blobResult && ownerRepo && eligibleForPrivate) {
-        blobResult = await tryPrivateInstall(ownerRepo, parsed, options, spinner);
       }
 
       if (blobResult) {

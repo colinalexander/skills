@@ -422,63 +422,6 @@ async function fetchSkillDownload(
   }
 }
 
-export type PrivateResolveStatus = 'ok' | 'unauthorized' | 'forbidden' | 'not-found' | 'error';
-
-export interface PrivateResolveResult {
-  status: PrivateResolveStatus;
-  skills?: BlobSkill[];
-}
-
-interface PrivateResolveEntry {
-  name: string;
-  repoPath: string;
-  files: SkillSnapshotFile[];
-  hash: string;
-  description?: string;
-  rawContent?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export function emptyRepoTree(ref?: string): RepoTree {
-  return { sha: '', branch: ref ?? 'HEAD', tree: [] };
-}
-
-export async function resolvePrivateInstall(
-  ownerRepo: string,
-  options: { ref?: string; skill?: string; token?: string | null } = {}
-): Promise<PrivateResolveResult> {
-  const [owner, repo] = ownerRepo.split('/');
-  if (!owner || !repo) return { status: 'error' };
-  try {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (options.token) headers['authorization'] = `Bearer ${options.token}`;
-    const res = await fetch(`${DOWNLOAD_BASE_URL}/api/cli/resolve`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ owner, repo, ref: options.ref, skill: options.skill }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
-    });
-    if (res.status === 401) return { status: 'unauthorized' };
-    if (res.status === 403) return { status: 'forbidden' };
-    if (res.status === 404) return { status: 'not-found' };
-    if (!res.ok) return { status: 'error' };
-    const data = (await res.json()) as { skills: PrivateResolveEntry[] };
-    const skills: BlobSkill[] = (data.skills ?? []).map((e) => ({
-      name: sanitizeMetadata(e.name),
-      description: sanitizeMetadata(e.description ?? ''),
-      path: '',
-      rawContent: e.rawContent ?? '',
-      metadata: e.metadata,
-      files: e.files,
-      snapshotHash: e.hash,
-      repoPath: e.repoPath,
-    }));
-    return { status: 'ok', skills };
-  } catch {
-    return { status: 'error' };
-  }
-}
-
 // ─── Main entry point ───
 
 export interface BlobInstallResult {
