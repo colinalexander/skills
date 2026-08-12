@@ -1256,8 +1256,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       }
 
-      const eligibleForPrivate =
-        getToken() !== null || isSelfHostedRepo || BLOB_ALLOWED_OWNERS.includes(owner ?? '');
+      const eligibleForPrivate = getToken() !== null;
       if (!blobResult && ownerRepo && eligibleForPrivate) {
         blobResult = await tryPrivateInstall(ownerRepo, parsed, options, spinner);
       }
