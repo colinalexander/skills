@@ -51,7 +51,7 @@ describe('orgs', () => {
                 },
               ],
             }),
-            { status: 200 }
+            { status: 200, headers: { 'content-type': 'application/json' } }
           )
       )
     );
@@ -66,10 +66,33 @@ describe('orgs', () => {
     setToken('tok');
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ orgs: [] }), { status: 200 }))
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ orgs: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+      )
     );
     await runOrgs('https://skills.sh');
     expect(logs.join('\n')).toMatch(/No enterprise organizations/);
+  });
+
+  it('fails cleanly when the server returns a non-JSON 200 (endpoint not deployed)', async () => {
+    setToken('tok');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          })
+      )
+    );
+    await runOrgs('https://skills.sh');
+    expect(logs.join('\n')).toMatch(/does not support/);
+    expect(process.exitCode).toBe(1);
   });
 
   it('reports session expired on 401 with exit code 1', async () => {

@@ -36,6 +36,11 @@ export async function runOrgs(baseUrl: string = DEFAULT_BASE_URL): Promise<void>
       process.exitCode = 1;
       return;
     }
+    if (!res.headers.get('content-type')?.includes('application/json')) {
+      console.log('This server does not support `skills orgs` yet.');
+      process.exitCode = 1;
+      return;
+    }
     orgs = ((await res.json()) as { orgs: AccessibleOrg[] }).orgs;
   } catch (error) {
     console.log(`Could not load your organizations: ${(error as Error).message}`);
