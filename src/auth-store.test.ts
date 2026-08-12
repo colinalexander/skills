@@ -46,7 +46,7 @@ describe('auth-store', () => {
     expect(getToken()).toEqual({ token: 'opaque-123', source: 'file' });
   });
 
-  it('writes auth.json with 0600 permissions', () => {
+  it.skipIf(process.platform === 'win32')('writes auth.json with 0600 permissions', () => {
     setToken('opaque-123');
     const mode = statSync(getConfigPath()).mode & 0o777;
     expect(mode).toBe(0o600);
@@ -72,13 +72,13 @@ describe('auth-store', () => {
     expect(getToken()).toBeNull();
   });
 
-  it('writes the config dir with 0700 permissions', () => {
+  it.skipIf(process.platform === 'win32')('writes the config dir with 0700 permissions', () => {
     setToken('x');
     const mode = statSync(dirname(getConfigPath())).mode & 0o777;
     expect(mode).toBe(0o700);
   });
 
-  it('tightens an already-existing config dir to 0700', () => {
+  it.skipIf(process.platform === 'win32')('tightens an already-existing config dir to 0700', () => {
     const dir = dirname(getConfigPath());
     mkdirSync(dir, { recursive: true, mode: 0o755 });
     setToken('x');
