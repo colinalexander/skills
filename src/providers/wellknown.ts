@@ -170,6 +170,49 @@ export class WellKnownProvider implements HostProvider {
     return Object.keys(headers).length > 0 ? headers : undefined;
   }
 
+  private sameRegistrableDomain(a: string, b: string): boolean {
+    try {
+      const hostA = new URL(a).hostname.replace(/^www\./, '').toLowerCase();
+      const hostB = new URL(b).hostname.replace(/^www\./, '').toLowerCase();
+      return hostA === hostB;
+    } catch {
+      return false;
+    }
+  }
+
+  private async fetchWithAuth(
+    url: string,
+    headers: Record<string, string> | undefined,
+    init?: RequestInit
+  ): Promise<Response> {
+    if (!headers?.Authorization) {
+      return fetch(url, { ...init, ...(headers ? { headers } : {}) });
+    }
+    let current = url;
+    for (let hop = 0; hop < 5; hop++) {
+      const keepAuth = this.sameRegistrableDomain(url, current);
+      const sendHeaders = keepAuth
+        ? headers
+        : Object.fromEntries(
+            Object.entries(headers).filter(([key]) => key.toLowerCase() !== 'authorization')
+          );
+      const response = await fetch(current, {
+        ...init,
+        ...(Object.keys(sendHeaders).length > 0 ? { headers: sendHeaders } : {}),
+        redirect: 'manual',
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          current = new URL(location, current).toString();
+          continue;
+        }
+      }
+      return response;
+    }
+    throw new Error('Too many redirects while fetching well-known content');
+  }
+
   private async fetchIndexCandidates(
     baseUrl: string,
     options?: { updateCheck?: boolean; token?: string }
@@ -223,10 +266,7 @@ export class WellKnownProvider implements HostProvider {
             options?.token,
             options?.updateCheck ? { 'X-Skills-Update-Check': '1' } : undefined
           );
-          const response = await fetch(indexUrl, {
-            signal,
-            ...(headers ? { headers } : {}),
-          });
+          const response = await this.fetchWithAuth(indexUrl, headers, { signal });
           if (response.status === 401 || response.status === 403) {
             throw new WellKnownAuthError(response.status);
           }
@@ -458,7 +498,7 @@ export class WellKnownProvider implements HostProvider {
       const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
       const fetchInit = this.buildFetchHeaders(token);
-      const response = await fetch(skillMdUrl, fetchInit ? { headers: fetchInit } : undefined);
+      const response = await this.fetchWithAuth(skillMdUrl, fetchInit);
       if (!response.ok) return null;
 
       const content = await response.text();
@@ -473,10 +513,7 @@ export class WellKnownProvider implements HostProvider {
         try {
           const fileUrl = `${skillBaseUrl}/${filePath}`;
           const fileHeaders = this.buildFetchHeaders(token);
-          const fileResponse = await fetch(
-            fileUrl,
-            fileHeaders ? { headers: fileHeaders } : undefined
-          );
+          const fileResponse = await this.fetchWithAuth(fileUrl, fileHeaders);
           if (fileResponse.ok) {
             const fileContent = await fileResponse.arrayBuffer();
             return { path: filePath, content: new Uint8Array(fileContent) };
@@ -513,10 +550,7 @@ export class WellKnownProvider implements HostProvider {
   ) {
     try {
       const artifactHeaders = this.buildFetchHeaders(token);
-      const response = await fetch(
-        entry.artifactUrl,
-        artifactHeaders ? { headers: artifactHeaders } : undefined
-      );
+      const response = await this.fetchWithAuth(entry.artifactUrl, artifactHeaders);
       if (!response.ok) return null;
 
       const contentType = response.headers.get('content-type') ?? '';

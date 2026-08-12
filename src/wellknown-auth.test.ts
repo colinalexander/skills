@@ -28,4 +28,48 @@ describe('well-known auth surfacing', () => {
     });
     expect(sentAuth).toBe(true);
   });
+
+  it('re-attaches Authorization across an apex→www redirect (same site)', async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url?: string, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, auth: (init as any)?.headers?.Authorization });
+        if (new URL(u).hostname === 'skills.sh') {
+          return new Response(null, {
+            status: 308,
+            headers: { location: u.replace('://skills.sh', '://www.skills.sh') },
+          });
+        }
+        return new Response(JSON.stringify({ skills: [] }), { status: 200 });
+      })
+    );
+    await wellKnownProvider.fetchAllSkills('https://skills.sh/p/acme-foo', { token: 'cli_x' });
+    const wwwCall = calls.find((c) => c.url.includes('www.skills.sh'));
+    expect(wwwCall).toBeTruthy();
+    expect(wwwCall?.auth).toBe('Bearer cli_x');
+  });
+
+  it('drops Authorization when redirected to a third-party host', async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url?: string, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, auth: (init as any)?.headers?.Authorization });
+        if (new URL(u).hostname === 'skills.sh') {
+          return new Response(null, {
+            status: 302,
+            headers: { location: 'https://evil.example/x' },
+          });
+        }
+        return new Response(JSON.stringify({ skills: [] }), { status: 200 });
+      })
+    );
+    await wellKnownProvider.fetchAllSkills('https://skills.sh/p/acme-foo', { token: 'cli_x' });
+    const evilCall = calls.find((c) => c.url.includes('evil.example'));
+    expect(evilCall).toBeTruthy();
+    expect(evilCall?.auth).toBeUndefined();
+  });
 });
