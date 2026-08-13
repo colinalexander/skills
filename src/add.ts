@@ -58,7 +58,7 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
-import { NOTION_TEST_SOURCE, runNotionTestSelector } from './notion-test.ts';
+import { isNotionSource, prepareNotionPackSource } from './notion-test.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -1102,18 +1102,29 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   let tempDir: string | null = null;
 
   try {
-    if (source === NOTION_TEST_SOURCE) {
-      await runNotionTestSelector(options);
-      return;
+    let effectiveSource = source;
+    let notionPackCount: number | null = null;
+    if (isNotionSource(source)) {
+      const prepared = await prepareNotionPackSource(options);
+      if (!prepared) return;
+
+      effectiveSource = prepared.rootDir;
+      tempDir = prepared.tempDir;
+      notionPackCount = prepared.packCount;
+      // Pack selection replaces the ordinary per-skill selector. Every skill
+      // inside the selected packs continues through the normal install flow.
+      options.skill = ['*'];
     }
 
     const spinner = p.spinner();
 
     spinner.start('Parsing source…');
-    const parsed = parseSource(source);
-    let directDownload = parsed.type === 'download';
+    const parsed = parseSource(effectiveSource);
+    let directDownload = parsed.type === 'download' || notionPackCount !== null;
     spinner.stop(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+      notionPackCount !== null
+        ? `Source: ${notionPackCount} selected Notion pack${notionPackCount === 1 ? '' : 's'}`
+        : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Kick off the repo privacy check early so it runs in parallel with

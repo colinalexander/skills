@@ -92,13 +92,13 @@ description: A skill served from an archive
     rmSync(downloaded.tempDir, { recursive: true, force: true });
   });
 
-  it('accepts an explicit download size limit without changing the default', async () => {
+  it('accepts an explicit provider download size limit without changing the default', async () => {
     const archiveRoot = join(testDir, 'large-archive-root');
     const skillDir = join(archiveRoot, 'repo-main', 'skills', 'large-url-skill');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
       join(skillDir, 'SKILL.md'),
-      '---\nname: large-url-skill\ndescription: A skill in a large plugin bundle\n---\n'
+      '---\nname: large-url-skill\ndescription: A skill in a large provider bundle\n---\n'
     );
 
     const archivePath = join(testDir, 'large-payload.tgz');

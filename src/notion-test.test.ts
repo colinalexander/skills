@@ -1,433 +1,218 @@
-import { describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  fetchNotionPluginDownloads,
-  loadNotionPluginSkills,
-  type NotionFetch,
+  fetchNotionPackDirectory,
+  fetchNotionPacks,
+  isNotionSource,
+  prepareNotionPackSource,
+  type NotionPack,
+  type NtnRunner,
 } from './notion-test.ts';
-import type { Skill } from './types.ts';
+import { discoverSkills } from './skills.ts';
 
-const PLUGIN_ONE_ID = '04bc94c5-1a64-49c5-ac4c-5f603c1a0146';
-const PLUGIN_TWO_ID = '6be44900-5769-4e54-ba7e-a6411285f214';
+const cleanupDirs: string[] = [];
 
-function jsonResponse(value: unknown, status = 200, headers?: Record<string, string>): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { 'content-type': 'application/json', ...headers },
+afterEach(() => {
+  for (const dir of cleanupDirs.splice(0)) {
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function listResponse(
+  results: unknown[],
+  options: { hasMore?: boolean; nextCursor?: string | null } = {}
+): string {
+  return JSON.stringify({
+    object: 'list',
+    results,
+    next_cursor: options.nextCursor ?? null,
+    has_more: options.hasMore ?? false,
+    type: 'plugin',
   });
 }
 
-describe('Notion Agent Plugins prototype', () => {
-  it('accepts plugin summaries without a description', async () => {
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_ONE_ID,
-              name: 'Engineering',
-              version_id: 'a'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      return jsonResponse({
-        id: PLUGIN_ONE_ID,
-        version_id: 'a'.repeat(64),
-        url: 'https://downloads.example/engineering.tar.gz',
-      });
-    });
-
-    const downloads = await fetchNotionPluginDownloads('test-token', {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-    });
-
-    expect(downloads).toHaveLength(1);
-    expect(downloads[0]?.summary.description).toBe('');
-  });
-
-  it('retries a transient server error while fetching a plugin directory', async () => {
-    let directoryAttempts = 0;
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_ONE_ID,
-              name: 'Engineering',
-              version_id: 'a'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      directoryAttempts += 1;
-      if (directoryAttempts === 1) {
-        return jsonResponse(
-          {
-            object: 'error',
-            status: 500,
-            code: 'internal_server_error',
-            message: 'Unexpected error occurred.',
-          },
-          500,
-          { 'retry-after': '0' }
-        );
-      }
-
-      return jsonResponse({
-        id: PLUGIN_ONE_ID,
-        version_id: 'a'.repeat(64),
-        url: 'https://downloads.example/engineering.tar.gz',
-      });
-    });
-
-    const downloads = await fetchNotionPluginDownloads('test-token', {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-    });
-
-    expect(downloads).toHaveLength(1);
-    expect(directoryAttempts).toBe(2);
-  });
-
-  it('filters non-UUID plugin IDs without requesting their directories', async () => {
-    const warnings: string[] = [];
-    const requestedUrls: string[] = [];
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-      requestedUrls.push(url.toString());
-
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
+describe('Notion pack prototype', () => {
+  it('uses only paginated ntn list calls and returns packs without fetching details', async () => {
+    const runNtn = vi.fn<NtnRunner>(async (args) => {
+      const cursor = args.find((arg) => arg.startsWith('start_cursor=='));
+      if (!cursor) {
+        return listResponse(
+          [
             {
               id: '>tO?',
               name: 'Company-wide',
-              version_id: 'a'.repeat(64),
-            },
-            {
-              id: '6be44900-5769-4e54-ba7e-a6411285f214',
-              name: 'Engineering',
-              version_id: 'b'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      if (url.pathname === '/v1/ai/plugins/%3EtO%3F') {
-        throw new Error('non-UUID plugin IDs must not be requested');
-      }
-
-      return jsonResponse({
-        id: '6be44900-5769-4e54-ba7e-a6411285f214',
-        version_id: 'b'.repeat(64),
-        url: 'https://downloads.example/engineering.tar.gz',
-      });
-    });
-
-    const requestOptions = {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-      onWarning: (warning: string) => warnings.push(warning),
-    };
-    const downloads = await fetchNotionPluginDownloads('test-token', requestOptions);
-
-    expect(downloads.map((download) => download.summary.name)).toEqual(['Engineering']);
-    expect(warnings).toEqual([
-      'Skipped Notion plugin "Company-wide" (>tO?): Notion returned a non-UUID plugin ID',
-    ]);
-    expect(requestedUrls).not.toContain('https://api.example/v1/ai/plugins/%3EtO%3F');
-  });
-
-  it('warns and continues when one UUID plugin directory times out', async () => {
-    const warnings: string[] = [];
-    const firstId = '04bc94c5-1a64-49c5-ac4c-5f603c1a0146';
-    const secondId = '6be44900-5769-4e54-ba7e-a6411285f214';
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: firstId,
-              name: 'Engineering',
-              version_id: 'a'.repeat(64),
-            },
-            {
-              id: secondId,
-              name: 'Docs',
-              version_id: 'b'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      if (url.pathname === `/v1/ai/plugins/${firstId}`) {
-        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-      }
-
-      return jsonResponse({
-        id: secondId,
-        version_id: 'b'.repeat(64),
-        url: 'https://downloads.example/docs.tar.gz',
-      });
-    });
-
-    const requestOptions = {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-      onWarning: (warning: string) => warnings.push(warning),
-    };
-    const downloads = await fetchNotionPluginDownloads('test-token', requestOptions);
-
-    expect(downloads.map((download) => download.summary.name)).toEqual(['Docs']);
-    expect(warnings).toEqual([
-      `Skipped Notion plugin "Engineering" (${firstId}): Notion API request failed: The operation was aborted due to timeout while fetching plugin "Engineering" (${firstId})`,
-    ]);
-  });
-
-  it('paginates plugin summaries and fetches every signed directory URL', async () => {
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-      const cursor = url.searchParams.get('start_cursor');
-
-      if (url.pathname === '/v1/ai/plugins' && !cursor) {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_ONE_ID,
-              name: 'Engineering',
-              description: 'Engineering workflows',
+              description: '',
               version_id: 'a'.repeat(64),
             },
           ],
-          next_cursor: 'next123',
-          has_more: true,
-          type: 'plugin',
-        });
-      }
-
-      if (url.pathname === '/v1/ai/plugins' && cursor === 'next123') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_TWO_ID,
-              name: 'Finance',
-              description: 'Finance workflows',
-              version_id: 'b'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      if (url.pathname === `/v1/ai/plugins/${PLUGIN_ONE_ID}`) {
-        return jsonResponse({
-          id: PLUGIN_ONE_ID,
-          version_id: 'a'.repeat(64),
-          url: 'https://downloads.example/engineering.tar.gz',
-        });
-      }
-
-      if (url.pathname === `/v1/ai/plugins/${PLUGIN_TWO_ID}`) {
-        return jsonResponse({
-          id: PLUGIN_TWO_ID,
-          version_id: 'b'.repeat(64),
-          url: 'https://downloads.example/finance.tar.gz',
-        });
-      }
-
-      return jsonResponse({ message: 'not found' }, 404);
-    });
-
-    const downloads = await fetchNotionPluginDownloads('test-token', {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-    });
-
-    expect(downloads).toHaveLength(2);
-    expect(downloads.map((entry) => entry.summary.name)).toEqual(['Engineering', 'Finance']);
-    expect(downloads.map((entry) => entry.directory.url)).toEqual([
-      'https://downloads.example/engineering.tar.gz',
-      'https://downloads.example/finance.tar.gz',
-    ]);
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
-  });
-
-  it('groups discovered skills under the plugin name', async () => {
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_ONE_ID,
-              name: 'Document skills',
-              description: 'Document workflows',
-              version_id: 'a'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-      return jsonResponse({
-        id: PLUGIN_ONE_ID,
-        version_id: 'a'.repeat(64),
-        url: 'https://downloads.example/documents.tar.gz',
-      });
-    });
-
-    const skills: Skill[] = [
-      { name: 'pdf', description: 'Work with PDFs', path: '/tmp/notion-plugin/skills/pdf' },
-      { name: 'docx', description: 'Work with DOCX', path: '/tmp/notion-plugin/skills/docx' },
-    ];
-
-    const loaded = await loadNotionPluginSkills('test-token', {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-      download: vi.fn(async () => ({
-        rootDir: '/tmp/notion-plugin',
-        tempDir: '/tmp/notion-plugin-download',
-        kind: 'archive' as const,
-      })),
-      discover: vi.fn(async () => skills),
-    });
-
-    expect(loaded.pluginCount).toBe(1);
-    expect(loaded.skills.map((skill) => skill.pluginName)).toEqual([
-      'Document skills',
-      'Document skills',
-    ]);
-  });
-
-  it('warns and continues when one plugin archive cannot be downloaded', async () => {
-    const warnings: string[] = [];
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(input.toString());
-      if (url.pathname === '/v1/ai/plugins') {
-        return jsonResponse({
-          object: 'list',
-          results: [
-            {
-              id: PLUGIN_ONE_ID,
-              name: 'notion-skills-updater',
-              version_id: 'a'.repeat(64),
-            },
-            {
-              id: PLUGIN_TWO_ID,
-              name: 'Docs',
-              version_id: 'b'.repeat(64),
-            },
-          ],
-          next_cursor: null,
-          has_more: false,
-          type: 'plugin',
-        });
-      }
-
-      const id = url.pathname.endsWith(PLUGIN_ONE_ID) ? PLUGIN_ONE_ID : PLUGIN_TWO_ID;
-      return jsonResponse({
-        id,
-        version_id: id === PLUGIN_ONE_ID ? 'a'.repeat(64) : 'b'.repeat(64),
-        url: `https://downloads.example/${id}.tar.gz`,
-      });
-    });
-    const download = vi.fn(async (url: string) => {
-      if (url.includes(PLUGIN_ONE_ID)) {
-        throw new Error(
-          'Download is larger than 52428800 bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.'
+          { hasMore: true, nextCursor: 'next123' }
         );
       }
-      return {
-        rootDir: '/tmp/notion-docs',
-        tempDir: '/tmp/notion-docs-download',
-        kind: 'archive' as const,
-      };
+
+      return listResponse([
+        {
+          id: '6be44900-5769-4e54-ba7e-a6411285f214',
+          name: 'Draft Skills',
+          description: 'Draft plugin pack',
+          version_id: 'b'.repeat(64),
+        },
+      ]);
     });
 
-    const loaded = await loadNotionPluginSkills('test-token', {
-      fetchImpl: fetchImpl as NotionFetch,
-      apiBaseUrl: 'https://api.example',
-      requestIntervalMs: 0,
-      download,
-      discover: vi.fn(async () => [
-        { name: 'docs', description: 'Work with docs', path: '/tmp/notion-docs/skills/docs' },
-      ]),
-      onWarning: (warning) => warnings.push(warning),
-    });
+    const packs = await fetchNotionPacks({ runNtn });
 
-    expect(loaded.pluginCount).toBe(1);
-    expect(loaded.skills.map((skill) => skill.name)).toEqual(['docs']);
-    expect(warnings).toEqual([
-      `Skipped Notion plugin "notion-skills-updater" (${PLUGIN_ONE_ID}): Download is larger than 52428800 bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`,
+    expect(packs.map((pack) => pack.name)).toEqual(['Company-wide', 'Draft Skills']);
+    expect(runNtn).toHaveBeenCalledTimes(2);
+    expect(runNtn).toHaveBeenNthCalledWith(1, [
+      'api',
+      '/v1/ai/plugins',
+      'page_size==100',
+      '--notion-version',
+      '2026-03-11',
+    ]);
+    expect(runNtn).toHaveBeenNthCalledWith(2, [
+      'api',
+      '/v1/ai/plugins',
+      'page_size==100',
+      'start_cursor==next123',
+      '--notion-version',
+      '2026-03-11',
+    ]);
+    expect(runNtn.mock.calls.flat(2).join(' ')).not.toContain('/v1/ai/plugins/>tO?');
+    expect(runNtn.mock.calls.flat(2).join(' ')).not.toContain(
+      '/v1/ai/plugins/6be44900-5769-4e54-ba7e-a6411285f214'
+    );
+  });
+
+  it('accepts omitted pack descriptions from the alpha API', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () =>
+      listResponse([
+        {
+          id: '~R\\;',
+          name: 'Product Design',
+          version_id: 'a'.repeat(64),
+        },
+      ])
+    );
+
+    const packs = await fetchNotionPacks({ runNtn });
+
+    expect(packs).toEqual([
+      {
+        id: '~R\\;',
+        name: 'Product Design',
+        description: '',
+        version_id: 'a'.repeat(64),
+      },
     ]);
   });
 
-  it('surfaces structured Notion API errors without exposing credentials', async () => {
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse(
-        {
-          object: 'error',
-          status: 403,
-          code: 'restricted_resource',
-          message: 'Workspace is not enabled for the alpha',
-        },
-        403
-      )
+  it('percent-encodes opaque pack IDs for lazy directory lookup', async () => {
+    const pack: NotionPack = {
+      id: '>tO?',
+      name: 'Company-wide',
+      description: '',
+      version_id: 'a'.repeat(64),
+    };
+    const runNtn = vi.fn<NtnRunner>(async () =>
+      JSON.stringify({
+        id: pack.id,
+        version_id: pack.version_id,
+        url: 'https://downloads.example/company-wide.tgz',
+      })
     );
 
-    await expect(
-      fetchNotionPluginDownloads('super-secret-token', {
-        fetchImpl: fetchImpl as NotionFetch,
-        apiBaseUrl: 'https://api.example',
-        requestIntervalMs: 0,
-      })
-    ).rejects.toThrow(
-      'Notion API request failed (403 restricted_resource): Workspace is not enabled for the alpha'
-    );
+    const directory = await fetchNotionPackDirectory(pack, { runNtn });
 
-    await expect(
-      fetchNotionPluginDownloads('super-secret-token', {
-        fetchImpl: fetchImpl as NotionFetch,
-        apiBaseUrl: 'https://api.example',
-        requestIntervalMs: 0,
-      })
-    ).rejects.not.toThrow('super-secret-token');
+    expect(directory.url).toBe('https://downloads.example/company-wide.tgz');
+    expect(runNtn).toHaveBeenCalledWith([
+      'api',
+      '/v1/ai/plugins/%3EtO%3F',
+      '--notion-version',
+      '2026-03-11',
+    ]);
   });
+
+  it('stages selected packs as one grouped local install source', async () => {
+    const pack: NotionPack = {
+      id: '>tO?',
+      name: 'Company-wide',
+      description: '',
+      version_id: 'a'.repeat(64),
+    };
+    const downloadTemp = mkdtempSync(join(tmpdir(), 'notion-pack-download-test-'));
+    cleanupDirs.push(downloadTemp);
+    const downloadRoot = join(downloadTemp, 'company-wide');
+    const skillDir = join(downloadRoot, 'skills', 'write-update');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: write-update\ndescription: Write a company update\n---\n'
+    );
+
+    const runNtn = vi.fn<NtnRunner>(async (args) => {
+      if (args[1] === '/v1/ai/plugins') return listResponse([pack]);
+      return JSON.stringify({
+        id: pack.id,
+        version_id: pack.version_id,
+        url: 'https://downloads.example/company-wide.tgz',
+      });
+    });
+
+    const prepared = await prepareNotionPackSource({
+      yes: true,
+      runNtn,
+      download: vi.fn(async () => ({
+        rootDir: downloadRoot,
+        tempDir: downloadTemp,
+        kind: 'archive' as const,
+      })),
+    });
+
+    expect(prepared).not.toBeNull();
+    cleanupDirs.push(prepared!.tempDir);
+    const stagedSkills = await discoverSkills(prepared!.rootDir, undefined, { fullDepth: true });
+    expect(
+      stagedSkills.map((skill) => ({ name: skill.name, pluginName: skill.pluginName }))
+    ).toEqual([{ name: 'write-update', pluginName: 'Company-wide' }]);
+    expect(prepared).toMatchObject({ packCount: 1, skillCount: 1 });
+    expect(runNtn).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects invalid repeated pagination cursors', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () =>
+      listResponse([], { hasMore: true, nextCursor: 'same123' })
+    );
+
+    await expect(fetchNotionPacks({ runNtn })).rejects.toThrow(
+      'Notion Agent Plugins pagination returned an invalid cursor'
+    );
+    expect(runNtn).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports invalid JSON returned by ntn', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () => 'not json');
+
+    await expect(fetchNotionPacks({ runNtn })).rejects.toThrow(
+      'ntn returned invalid JSON for the Notion packs list'
+    );
+  });
+
+  it.each([
+    'notion',
+    'notion-test',
+    'https://www.notion.so/acme/Skills-123',
+    'https://acme.notion.site/Skills-123',
+  ])('recognizes %s as a Notion source', (source) => {
+    expect(isNotionSource(source)).toBe(true);
+  });
+
+  it.each(['notion.example', 'https://example.com/notion', 'owner/notion'])(
+    'does not treat %s as a Notion source',
+    (source) => {
+      expect(isNotionSource(source)).toBe(false);
+    }
+  );
 });

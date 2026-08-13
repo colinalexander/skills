@@ -44,12 +44,12 @@ describe('add command', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it('special-cases notion-test and requires a token from the environment', () => {
+  it('special-cases notion-test and requires the ntn CLI', () => {
     const result = runCli(['add', 'notion-test', '--list'], testDir, {
-      NOTION_API_TOKEN: '',
+      PATH: join(testDir, 'missing-bin'),
     });
 
-    expect(result.stdout).toContain('notion-test requires NOTION_API_TOKEN');
+    expect(result.stdout).toContain('Notion CLI (ntn) is required');
     expect(result.stdout).not.toContain('Cloning repository');
     expect(result.exitCode).toBe(1);
   });

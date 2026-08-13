@@ -33,7 +33,6 @@ export interface DownloadSourceOptions {
   downloadMaxBytes?: number;
   extractMaxBytes?: number;
   extractMaxFiles?: number;
-  fetchTimeoutMs?: number;
 }
 
 function positiveIntegerOr(value: number | undefined, fallback: number): number {
@@ -97,11 +96,10 @@ function incrementEntry(state: ExtractState, size: number, limits: DownloadLimit
 async function downloadToFile(
   url: string,
   targetFile: string,
-  limits: DownloadLimits,
-  fetchTimeoutMs: number
+  limits: DownloadLimits
 ): Promise<void> {
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(fetchTimeoutMs),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     redirect: 'follow',
   });
 
@@ -279,13 +277,12 @@ export async function downloadSource(
   options: DownloadSourceOptions = {}
 ): Promise<DownloadedSource> {
   const limits = getDownloadLimits(options);
-  const fetchTimeoutMs = positiveIntegerOr(options.fetchTimeoutMs, FETCH_TIMEOUT_MS);
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-download-'));
   const downloadedFile = join(tempDir, 'source.download');
   const extractDir = join(tempDir, 'extract');
 
   try {
-    await downloadToFile(url, downloadedFile, limits, fetchTimeoutMs);
+    await downloadToFile(url, downloadedFile, limits);
 
     const downloadedStats = await stat(downloadedFile);
     if (downloadedStats.size === 0) {
