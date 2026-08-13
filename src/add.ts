@@ -613,9 +613,7 @@ async function handleWellKnownSkills(
   try {
     skills = await discover();
   } catch (error) {
-    if (!(error instanceof WellKnownAuthError)) {
-      skills = [];
-    } else if (!trusted) {
+    if (!trusted || !(error instanceof WellKnownAuthError)) {
       skills = [];
     } else if (error.status === 403) {
       spinner.stop(pc.red('Access denied'));

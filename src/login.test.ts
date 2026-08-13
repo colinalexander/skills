@@ -68,6 +68,21 @@ describe('login core', () => {
       exchangeCodeForToken('https://skills.sh', { code: 'c', codeVerifier: 'v', state: 's' })
     ).rejects.toThrow(/400/);
   });
+
+  it('exchangeCodeForToken throws when the response has no token', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ user: { id: 'u', handle: 'h', email: 'e' } }), {
+            status: 200,
+          })
+      )
+    );
+    await expect(
+      exchangeCodeForToken('https://skills.sh', { code: 'c', codeVerifier: 'v', state: 's' })
+    ).rejects.toThrow(/no access token/i);
+  });
 });
 
 describe('whoami / logout', () => {

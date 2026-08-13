@@ -56,7 +56,11 @@ export async function exchangeCodeForToken(
     signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Token exchange failed (${res.status})`);
-  return (await res.json()) as TokenExchangeResult;
+  const result = (await res.json()) as TokenExchangeResult;
+  if (typeof result?.token !== 'string' || result.token.trim().length === 0) {
+    throw new Error('Token exchange returned no access token');
+  }
+  return result;
 }
 
 const CALLBACK_TIMEOUT_MS = 120_000;
@@ -136,7 +140,7 @@ export async function runLogin(baseUrl: string = DEFAULT_BASE_URL): Promise<void
     console.log('SKILLS_TOKEN is set in the environment; already authenticated.');
     return;
   }
-  const interactive = process.stdout.isTTY === true;
+  const interactive = process.stdin.isTTY === true || process.stdout.isTTY === true;
   const { verifier, challenge } = generatePkce();
   const state = generateState();
   try {
@@ -164,6 +168,11 @@ export async function runWhoami(baseUrl: string = DEFAULT_BASE_URL): Promise<voi
     });
     if (res.status === 401) {
       console.log('Token invalid or expired. Run `skills login`.');
+      process.exitCode = 1;
+      return;
+    }
+    if (!res.ok) {
+      console.error(`Could not verify identity (${res.status}). Try again later.`);
       process.exitCode = 1;
       return;
     }

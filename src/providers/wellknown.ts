@@ -170,11 +170,12 @@ export class WellKnownProvider implements HostProvider {
     return Object.keys(headers).length > 0 ? headers : undefined;
   }
 
-  private sameRegistrableDomain(a: string, b: string): boolean {
+  private isSameOrSubdomain(candidateUrl: string, baseUrl: string): boolean {
     try {
-      const hostA = new URL(a).hostname.replace(/^www\./, '').toLowerCase();
-      const hostB = new URL(b).hostname.replace(/^www\./, '').toLowerCase();
-      return hostA === hostB;
+      const norm = (h: string) => h.replace(/^www\./, '').toLowerCase();
+      const candidate = norm(new URL(candidateUrl).hostname);
+      const base = norm(new URL(baseUrl).hostname);
+      return candidate === base || candidate.endsWith(`.${base}`);
     } catch {
       return false;
     }
@@ -192,8 +193,8 @@ export class WellKnownProvider implements HostProvider {
     let current = url;
     for (let hop = 0; hop < 5; hop++) {
       const keepAuth = authHost
-        ? this.sameRegistrableDomain(current, authHost)
-        : this.sameRegistrableDomain(url, current);
+        ? this.isSameOrSubdomain(current, authHost)
+        : this.isSameOrSubdomain(current, url);
       const sendHeaders = keepAuth
         ? headers
         : Object.fromEntries(

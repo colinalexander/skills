@@ -14,21 +14,21 @@ Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#su
 npx skills add vercel-labs/agent-skills
 ```
 
-## Private Skills
+## Enterprise Org Packs
 
-Some skills live in private registries. Install them with the same command:
+Enterprise organizations can publish private skill packs. Install one with its pack URL:
 
 ```bash
-npx skills add owner/repo
+npx skills add https://skills.sh/p/<pack-id>
 ```
 
-If the source is private, the CLI asks you to sign in:
+If the pack is private to your GitHub organization, the CLI signs you in the first time you install it. You can also sign in ahead of time:
 
 ```bash
 npx skills login
 ```
 
-Login opens your browser, signs you in, and stores an access token at `~/.config/skills/auth.json`. Set the `SKILLS_TOKEN` environment variable to override it (useful in CI). Use `npx skills whoami` to see the signed-in account and `npx skills logout` to sign out.
+Login opens your browser, signs you in, and stores an access token at `~/.config/skills/auth.json`. Set the `SKILLS_TOKEN` environment variable to override it (useful in CI). Use `npx skills orgs` to list the organizations and packs you can install, `npx skills whoami` to see the signed-in account, and `npx skills logout` to sign out.
 
 ## Use a Skill Without Installing
 

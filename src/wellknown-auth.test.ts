@@ -51,6 +51,50 @@ describe('well-known auth surfacing', () => {
     expect(wwwCall?.auth).toBe('Bearer cli_x');
   });
 
+  it('re-attaches Authorization across a redirect to a same-site subdomain', async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url?: string, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, auth: (init as any)?.headers?.Authorization });
+        if (new URL(u).hostname === 'skills.sh') {
+          return new Response(null, {
+            status: 307,
+            headers: { location: u.replace('://skills.sh', '://cdn.skills.sh') },
+          });
+        }
+        return new Response(JSON.stringify({ skills: [] }), { status: 200 });
+      })
+    );
+    await wellKnownProvider.fetchAllSkills('https://skills.sh/p/acme-foo', { token: 'cli_x' });
+    const cdnCall = calls.find((c) => c.url.includes('cdn.skills.sh'));
+    expect(cdnCall).toBeTruthy();
+    expect(cdnCall?.auth).toBe('Bearer cli_x');
+  });
+
+  it('drops Authorization when redirected to a look-alike host', async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url?: string, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, auth: (init as any)?.headers?.Authorization });
+        if (new URL(u).hostname === 'skills.sh') {
+          return new Response(null, {
+            status: 302,
+            headers: { location: 'https://skills.sh.evil.example/x' },
+          });
+        }
+        return new Response(JSON.stringify({ skills: [] }), { status: 200 });
+      })
+    );
+    await wellKnownProvider.fetchAllSkills('https://skills.sh/p/acme-foo', { token: 'cli_x' });
+    const evilCall = calls.find((c) => c.url.includes('skills.sh.evil.example'));
+    expect(evilCall).toBeTruthy();
+    expect(evilCall?.auth).toBeUndefined();
+  });
+
   it('drops Authorization when redirected to a third-party host', async () => {
     const calls: Array<{ url: string; auth?: string }> = [];
     vi.stubGlobal(
