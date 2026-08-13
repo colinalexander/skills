@@ -183,14 +183,17 @@ export class WellKnownProvider implements HostProvider {
   private async fetchWithAuth(
     url: string,
     headers: Record<string, string> | undefined,
-    init?: RequestInit
+    init?: RequestInit,
+    authHost?: string
   ): Promise<Response> {
     if (!headers?.Authorization) {
       return fetch(url, { ...init, ...(headers ? { headers } : {}) });
     }
     let current = url;
     for (let hop = 0; hop < 5; hop++) {
-      const keepAuth = this.sameRegistrableDomain(url, current);
+      const keepAuth = authHost
+        ? this.sameRegistrableDomain(current, authHost)
+        : this.sameRegistrableDomain(url, current);
       const sendHeaders = keepAuth
         ? headers
         : Object.fromEntries(
@@ -215,7 +218,7 @@ export class WellKnownProvider implements HostProvider {
 
   private async fetchIndexCandidates(
     baseUrl: string,
-    options?: { updateCheck?: boolean; token?: string }
+    options?: { updateCheck?: boolean; token?: string; authHost?: string }
   ): Promise<
     Array<{
       index: WellKnownIndex;
@@ -266,7 +269,12 @@ export class WellKnownProvider implements HostProvider {
             options?.token,
             options?.updateCheck ? { 'X-Skills-Update-Check': '1' } : undefined
           );
-          const response = await this.fetchWithAuth(indexUrl, headers, { signal });
+          const response = await this.fetchWithAuth(
+            indexUrl,
+            headers,
+            { signal },
+            options?.authHost
+          );
           if (response.status === 401 || response.status === 403) {
             throw new WellKnownAuthError(response.status);
           }
@@ -465,7 +473,8 @@ export class WellKnownProvider implements HostProvider {
     baseUrlOrEntry: string | NormalizedWellKnownEntry,
     legacyEntry?: WellKnownSkillEntryV1,
     legacyWellKnownPath?: string,
-    token?: string
+    token?: string,
+    authHost?: string
   ): Promise<WellKnownSkill | null> {
     if (typeof baseUrlOrEntry === 'string') {
       if (!legacyEntry) return null;
@@ -479,26 +488,28 @@ export class WellKnownProvider implements HostProvider {
           wellKnownPath: legacyWellKnownPath ?? this.WELL_KNOWN_PATHS[0],
           indexEntry: legacyEntry,
         },
-        token
+        token,
+        authHost
       );
     }
 
     if (baseUrlOrEntry.version === '0.1.0') {
-      return this.fetchLegacySkillByEntry(baseUrlOrEntry, token);
+      return this.fetchLegacySkillByEntry(baseUrlOrEntry, token, authHost);
     }
 
-    return this.fetchArtifactSkillByEntry(baseUrlOrEntry, token);
+    return this.fetchArtifactSkillByEntry(baseUrlOrEntry, token, authHost);
   }
 
   private async fetchLegacySkillByEntry(
     entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>,
-    token?: string
+    token?: string,
+    authHost?: string
   ) {
     try {
       const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
       const fetchInit = this.buildFetchHeaders(token);
-      const response = await this.fetchWithAuth(skillMdUrl, fetchInit);
+      const response = await this.fetchWithAuth(skillMdUrl, fetchInit, undefined, authHost);
       if (!response.ok) return null;
 
       const content = await response.text();
@@ -513,7 +524,7 @@ export class WellKnownProvider implements HostProvider {
         try {
           const fileUrl = `${skillBaseUrl}/${filePath}`;
           const fileHeaders = this.buildFetchHeaders(token);
-          const fileResponse = await this.fetchWithAuth(fileUrl, fileHeaders);
+          const fileResponse = await this.fetchWithAuth(fileUrl, fileHeaders, undefined, authHost);
           if (fileResponse.ok) {
             const fileContent = await fileResponse.arrayBuffer();
             return { path: filePath, content: new Uint8Array(fileContent) };
@@ -546,11 +557,17 @@ export class WellKnownProvider implements HostProvider {
 
   private async fetchArtifactSkillByEntry(
     entry: Extract<NormalizedWellKnownEntry, { version: '0.2.0' }>,
-    token?: string
+    token?: string,
+    authHost?: string
   ) {
     try {
       const artifactHeaders = this.buildFetchHeaders(token);
-      const response = await this.fetchWithAuth(entry.artifactUrl, artifactHeaders);
+      const response = await this.fetchWithAuth(
+        entry.artifactUrl,
+        artifactHeaders,
+        undefined,
+        authHost
+      );
       if (!response.ok) return null;
 
       const contentType = response.headers.get('content-type') ?? '';
@@ -631,12 +648,16 @@ export class WellKnownProvider implements HostProvider {
   /** Fetch all skills from a well-known endpoint. */
   async fetchAllSkills(url: string, options?: { token?: string }): Promise<WellKnownSkill[]> {
     const token = options?.token;
+    const authHost = url;
     try {
-      const candidates = await this.fetchIndexCandidates(url, token ? { token } : undefined);
+      const candidates = await this.fetchIndexCandidates(
+        url,
+        token ? { token, authHost } : { authHost }
+      );
 
       for (const result of candidates) {
         const skillPromises = result.entries.map((entry) =>
-          this.fetchSkillByEntry(entry, undefined, undefined, token)
+          this.fetchSkillByEntry(entry, undefined, undefined, token, authHost)
         );
         const results = await Promise.all(skillPromises);
         const skills = results.filter(

@@ -40,7 +40,7 @@ import {
 } from './providers/index.ts';
 import { WellKnownAuthError } from './providers/wellknown.ts';
 import { getToken } from './auth-store.ts';
-import { runLogin } from './login.ts';
+import { runLogin, DEFAULT_BASE_URL } from './login.ts';
 import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
@@ -573,6 +573,21 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+export function isTrustedPackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const base = new URL(DEFAULT_BASE_URL);
+    const normHost = (h: string) => h.replace(/^www\./, '').toLowerCase();
+    const sameOrigin =
+      parsed.protocol === base.protocol &&
+      normHost(parsed.hostname) === normHost(base.hostname) &&
+      parsed.port === base.port;
+    return sameOrigin && /^\/p\/[^/]+/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -582,9 +597,10 @@ async function handleWellKnownSkills(
   spinner.start('Discovering skills from well-known endpoint...');
 
   const interactive = process.stdin.isTTY === true && !options.yes;
+  const trusted = isTrustedPackUrl(url);
 
   const discover = async (): Promise<WellKnownSkill[]> => {
-    const token = getToken()?.token;
+    const token = trusted ? getToken()?.token : undefined;
     try {
       return await wellKnownProvider.fetchAllSkills(url, token ? { token } : undefined);
     } catch (error) {
@@ -598,6 +614,8 @@ async function handleWellKnownSkills(
     skills = await discover();
   } catch (error) {
     if (!(error instanceof WellKnownAuthError)) {
+      skills = [];
+    } else if (!trusted) {
       skills = [];
     } else if (error.status === 403) {
       spinner.stop(pc.red('Access denied'));
