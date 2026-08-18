@@ -200,19 +200,18 @@ describe('Notion pack prototype', () => {
     );
   });
 
-  it.each([
-    'notion',
-    'notion-test',
-    'https://www.notion.so/acme/Skills-123',
-    'https://acme.notion.site/Skills-123',
-  ])('recognizes %s as a Notion source', (source) => {
+  it.each(['notion', 'NOTION'])('recognizes %s as a Notion source', (source) => {
     expect(isNotionSource(source)).toBe(true);
   });
 
-  it.each(['notion.example', 'https://example.com/notion', 'owner/notion'])(
-    'does not treat %s as a Notion source',
-    (source) => {
-      expect(isNotionSource(source)).toBe(false);
-    }
-  );
+  it.each([
+    'notion-test',
+    'https://www.notion.so/acme/Skills-123',
+    'https://acme.notion.site/Skills-123',
+    'notion.example',
+    'https://example.com/notion',
+    'owner/notion',
+  ])('does not treat %s as a Notion source', (source) => {
+    expect(isNotionSource(source)).toBe(false);
+  });
 });

@@ -109,6 +109,7 @@ ${BOLD}Usage:${RESET} skills <command> [options]
 ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
+                            notion
                             https://github.com/vercel-labs/agent-skills
   use <package>@<skill>
                        Generate a prompt for using one skill without installing it

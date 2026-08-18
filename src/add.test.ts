@@ -44,8 +44,8 @@ describe('add command', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it('special-cases notion-test and requires the ntn CLI', () => {
-    const result = runCli(['add', 'notion-test', '--list'], testDir, {
+  it('special-cases notion and requires the ntn CLI', () => {
+    const result = runCli(['add', 'notion', '--list'], testDir, {
       PATH: join(testDir, 'missing-bin'),
     });
 

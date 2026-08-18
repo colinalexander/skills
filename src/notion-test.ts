@@ -11,8 +11,6 @@ import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { discoverSkills } from './skills.ts';
 
-export const NOTION_TEST_SOURCE = 'notion-test';
-
 const NOTION_API_VERSION = '2026-03-11';
 const NTN_TIMEOUT_MS = 30_000;
 const NTN_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
@@ -254,19 +252,7 @@ export async function fetchNotionPackDirectory(
 }
 
 export function isNotionSource(source: string): boolean {
-  if (source === 'notion' || source === NOTION_TEST_SOURCE) return true;
-
-  try {
-    const hostname = new URL(source).hostname.toLowerCase();
-    return (
-      hostname === 'notion.so' ||
-      hostname.endsWith('.notion.so') ||
-      hostname === 'notion.site' ||
-      hostname.endsWith('.notion.site')
-    );
-  } catch {
-    return false;
-  }
+  return source.toLowerCase() === 'notion';
 }
 
 function normalizeSelector(value: string): string {
